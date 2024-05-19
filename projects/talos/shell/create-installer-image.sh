@@ -7,7 +7,6 @@ EXTENSIONS=(
   "ghcr.io/siderolabs/util-linux-tools:2.39.3"
   # Image for Tailscale
   "ghcr.io/siderolabs/tailscale:1.62.1"
-  "
 )
 
 if ! type docker &> /dev/null; then
