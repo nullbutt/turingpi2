@@ -1,73 +1,48 @@
 #!/bin/sh
 
 CLUSTERNAME=turingpi1
-IPS=(      "192.168.50.11" "192.168.50.12" "192.168.50.13" "192.168.50.14")
-HOSTNAMES=("talos-tp1-n1"  "talos-tp1-n2"  "talos-tp1-n3"  "talos-tp1-n4")
-ROLES=(    "controlplane"  "controlplane"  "controlplane"  "worker")
+IPS=(      "192.168.68.53" "192.168.68.55" "192.168.68.56")
+HOSTNAMES=("tp-node1"      "tp-node2"      "tp-node4")
+ROLES=(    "controlplane"  "controlplane"  "controlplane")
 ALLOW_SCHEDULING_ON_CONTROLPLANE=true
 ENDPOINT_IP="192.168.50.2"
-IMAGE=metal-turing_rk1-arm64_v1.7.1.raw
+IMAGE=metal-turing_rk1-arm64_v1.7.2.raw
 
 LONGHORN_NS=longhorn-system
 LONGHORN_MOUNT=/var/mnt/longhorn
 
-INSTALLER=ghcr.io/bguijt/installer:v1.7.1-1
-# INSTALLER Image is created by the following commands:
-#
-# docker run --rm -t -v $PWD/_out:/out ghcr.io/nberlee/imager:v1.7.1 installer \
-#        --arch arm64 \
-#        --board turing_rk1 \
-#        --platform metal \
-#        --base-installer-image ghcr.io/nberlee/installer:v1.7.1-rk3588 \
-#        --system-extension-image ghcr.io/nberlee/rk3588:v1.7.1@sha256:239ef59bb67c48436e242fd9e39c3ef6b041e7becc1e59351d3e01495bb4e290 \
-#        --system-extension-image ghcr.io/siderolabs/wasmedge:v0.3.0@sha256:fcc7b087d1f08cb65a715c23bedda113233574882b89026075028599b0cb0c37 \
-#        --system-extension-image ghcr.io/siderolabs/iscsi-tools:v0.1.4@sha256:32d67987046ef28dcb9c54a6b34d6055eb6d78ac4ff78fa18dc6181cf31668be \
-#        --system-extension-image ghcr.io/siderolabs/util-linux-tools:2.39.3@sha256:1cdfab848cc2a6c2515f33ea732ac8ca34fe1a79a8bd99db6287f937b948b8f2
-#
-# crane push _out/installer-arm64.tar ${INSTALLER}
+INSTALLER=ghcr.io/nullbutt/installer:v1.7.2-1
 
-if ! type tpi &> /dev/null; then
-  echo "*** tpi must be installed! Install 'tpi': https://github.com/turing-machines/tpi ***"
-  exit 1
-fi
+TS_AUTHKEY="${TS_AUTHKEY}"
 
-if ! type talosctl &> /dev/null; then
-  echo "*** talosctl must be installed! Install 'talosctl': https://github.com/siderolabs/homebrew-tap ***"
-  exit 1
-fi
+# Function to check if a command exists
+command_exists() {
+  type "$1" &> /dev/null
+}
 
-if ! type kubectl &> /dev/null; then
-  echo "*** kubectl must be installed! Install 'kubectl': https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/ ***"
-  exit 1
-fi
+# Check required commands
+for cmd in tpi talosctl kubectl helm yq; do
+  if ! command_exists $cmd; then
+    echo "*** $cmd must be installed! ***"
+    exit 1
+  fi
+done
 
-if ! type helm &> /dev/null; then
-  echo "*** helm must be installed! Install 'helm': https://helm.sh/docs/intro/install/ ***"
-  exit 1
-fi
-
-if ! type yq &> /dev/null; then
-  echo "*** yq (version 4+) must be installed! Install 'yq': https://github.com/mikefarah/yq/#install ***"
-  exit 1
-fi
-
+# Check image file exists
 if [ ! -f "$IMAGE" ]; then
   echo "*** Image $IMAGE must exist on the filesystem, but it is not! ***"
   exit 1
 fi
 
-for node in 0 1 2 3; do
-  echo "Flashing node #$((node+1)) / ${HOSTNAMES[@]:$node:1} with $IMAGE..."
+# Flash nodes and power on (excluding node 3 which is index 2)
+for node in 0 1 3; do
+  echo "Flashing node #$((node+1)) / ${HOSTNAMES[$node]} with $IMAGE..."
   tpi flash -n $((node+1)) -i $IMAGE
   tpi power on -n $((node+1))
-  # echo "Resetting Talos node #$((node+1)) / ${HOSTNAMES[@]:$node:1}..."
-  # talosctl reset \
-  #          --nodes ${IPS[@]:$node:1} \
-  #          --wipe-mode all \
-  #          --reboot
 done
 
-cat << EOF > ${CLUSTERNAME}-worker-patch.yaml
+# Create controlplane patch configuration
+cat << EOF > ${CLUSTERNAME}-controlplane-patch.yaml
 # Rockchip additions:
 - op: add
   path: /machine/kernel
@@ -128,15 +103,14 @@ cat << EOF > ${CLUSTERNAME}-worker-patch.yaml
   path: /machine/network/interfaces
   value:
     - deviceSelector:
-        #driver: rk_gmac-dwmac
         busPath: "fe1c0000.ethernet"
       dhcp: true
-EOF
 
-cp -f ${CLUSTERNAME}-worker-patch.yaml ${CLUSTERNAME}-controlplane-patch.yaml
-cat << EOF >> ${CLUSTERNAME}-controlplane-patch.yaml
-      vip:
-        ip: $ENDPOINT_IP
+# Control Plane VIP:
+- op: add
+  path: /machine/network/vip
+  value:
+    ip: $ENDPOINT_IP
 # Misc:
 - op: add
   path: /cluster/allowSchedulingOnControlPlanes
@@ -161,27 +135,26 @@ else
   talosctl gen secrets --output-file secrets.yaml
 fi
 
-echo "Generating general controlplane and worker configurations..."
+echo "Generating general controlplane configurations..."
 talosctl gen config $CLUSTERNAME https://${ENDPOINT_IP}:6443 \
          --with-secrets secrets.yaml \
          --config-patch-control-plane @${CLUSTERNAME}-controlplane-patch.yaml \
-         --config-patch-worker @${CLUSTERNAME}-worker-patch.yaml \
          --force
 
-for node in 0 1 2 3; do
-  echo "Generating config for ${ROLES[@]:$node:1} ${HOSTNAMES[@]:$node:1}..."
-  talosctl machineconfig patch ${ROLES[@]:$node:1}.yaml \
-          --patch '[{"op": "add", "path": "/machine/network/hostname", "value": "'${HOSTNAMES[@]:$node:1}'"}]' \
-          --output ${HOSTNAMES[@]:$node:1}.yaml
+for node in 0 1 3; do
+  echo "Generating config for ${ROLES[$node]} ${HOSTNAMES[$node]}..."
+  talosctl machineconfig patch ${ROLES[$node]}.yaml \
+          --patch '[{"op": "add", "path": "/machine/network/hostname", "value": "'${HOSTNAMES[$node]}'"}]' \
+          --output ${HOSTNAMES[$node]}.yaml
 done
 
-for node in 0 1 2 3; do
+for node in 0 1 3; do
   printf "Waiting for node #$((node+1)) to be ready..."
-  until nc -zw 3 ${IPS[@]:$node:1} 50000; do sleep 3; printf '.'; done
-  echo "Applying config ${HOSTNAMES[@]:$node:1} to ${ROLES[@]:$node:1} at IP ${IPS[@]:$node:1}..."
+  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
+  echo "Applying config ${HOSTNAMES[$node]} to ${ROLES[$node]} at IP ${IPS[$node]}..."
   talosctl apply config \
-           --file ${HOSTNAMES[@]:$node:1}.yaml \
-           --nodes ${IPS[@]:$node:1} \
+           --file ${HOSTNAMES[$node]}.yaml \
+           --nodes ${IPS[$node]} \
            --insecure
 done
 
@@ -192,22 +165,22 @@ fi
 echo "Merging Talos configs..."
 talosctl config merge ./talosconfig --nodes $(echo ${IPS[@]} | tr ' ' ',')
 # Replace 127.0.0.1 endpoint with the IP of the first node (ENDPOINT_IP is not available yet):
-yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${IPS[@]:0:1}\"]" ~/.talos/config
+yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${IPS[0]}\"]" ~/.talos/config
 yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"127.0.0.1\"]" ~/.talos/config
 
 echo "Waiting for all nodes to be up and running..."
-for node in 0 1 2 3; do
-  until nc -zw 3 ${IPS[@]:$node:1} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[@]:$node:1} is ready!"
+for node in 0 1 3; do
+  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node]} is ready!"
 done
 
-echo "Bootstrapping Kubernetes at ${IPS[@]:0:1}..."
-talosctl bootstrap --nodes ${IPS[@]:0:1}
+echo "Bootstrapping Kubernetes at ${IPS[0]}..."
+talosctl bootstrap --nodes ${IPS[0]}
 
 echo "Creating Kubernetes config..."
 # Replace the IP of the first node with the Kubernetes endpoint:
 yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${ENDPOINT_IP}\"]" ~/.talos/config
-yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[@]:0:1}\"]" ~/.talos/config
+yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[0]}\"]" ~/.talos/config
 
 if [ -f ~/.kube/config ]; then
   echo "First, remove old Kubernetes context config for ${CLUSTERNAME}..."
@@ -215,29 +188,48 @@ if [ -f ~/.kube/config ]; then
   yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
   yq -i e "del(.contexts[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
 fi
-talosctl kubeconfig --nodes ${IPS[@]:0:1}
+talosctl kubeconfig --nodes ${IPS[0]}
 
 echo "Waiting until nodes are ready..."
-# Wel, ready... we like 'NotReady' as well because at least the API service is responsive:
 until kubectl get nodes | grep -qF "Ready"; do sleep 3; done
-#kubectl wait nodes --for condition=Ready --all --timeout 5m0s
 
 echo "Kubernetes nodes installed:"
 kubectl get nodes -o wide
 
-for node in 0 1 2 3; do
+for node in 0 1 3; do
   echo "'Upgrading' ${HOSTNAMES[$node]} with extensions from ${INSTALLER}..."
   talosctl upgrade \
            --image ${INSTALLER} \
-           --nodes ${IPS[@]:$node:1} \
+           --nodes ${IPS[$node]} \
            --timeout 3m0s \
            --force
 done
 
 echo "Waiting for all nodes to be up and running..."
-for node in 0 1 2 3; do
-  until nc -zw 3 ${IPS[@]:$node:1} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[@]:$node:1} is ready!"
+for node in 0 1 3; do
+  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node]} is ready!"
+done
+
+# Create Tailscale configuration
+cat << EOF > tailscale-config.yaml
+---
+apiVersion: v1alpha1
+kind: ExtensionServiceConfig
+name: tailscale
+environment:
+  - TS_AUTHKEY=${TS_AUTHKEY}
+EOF
+
+# Apply Tailscale configuration to each node (excluding node 3)
+for node in 0 1 3; do
+  echo "Applying Tailscale configuration to ${HOSTNAMES[$node]} at IP ${IPS[$node]}..."
+  talosctl patch mc -p @tailscale-config.yaml --nodes ${IPS[$node]}
+done
+
+echo "Verifying Tailscale extension is in place..."
+for node in 0 1 3; do
+  talosctl get extensionserviceconfigs --nodes ${IPS[$node]}
 done
 
 helm repo add cilium https://helm.cilium.io/
@@ -296,13 +288,4 @@ kubectl wait pod \
         --timeout 2m0s \
         --all
 
-echo "Adding RuntimeClass for WASM workloads..."
-kubectl apply -f - << EOF
-kind: RuntimeClass
-apiVersion: node.k8s.io/v1
-metadata:
-  name: wasm
-handler: wasmedge
-EOF
-
-kubectl get runtimeclasses
+echo "Cluster setup complete."
