@@ -43,7 +43,7 @@ EXTENSIONS_IMAGE=ghcr.io/$(gh api user | jq -r '.login')/installer:${TALOS_VERSI
 echo "Creating Talos image $EXTENSIONS_IMAGE with provided extensions..."
 docker run --rm -t \
        -v $PWD/_out:/out \
-       ghcr.io/nberlee/imager:v1.7.1 installer \
+       ghcr.io/nberlee/imager:v1.7.2 installer \
        --arch arm64 \
        --board turing_rk1 \
        --platform metal \
