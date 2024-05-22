@@ -151,11 +151,12 @@ done
 
 for node in 0 1 3; do
   printf "Waiting for node #$((node+1)) to be ready..."
-  until nc -zw 3 ${IPS[@]:$node:1} 50000; do sleep 3; printf '.'; done
-  echo "Applying config ${HOSTNAMES[@]:$node:1} to ${ROLES[@]:$node:1} at IP ${IPS[@]:$node:1}..."
+  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node]} is ready!"
+  echo "Applying config ${HOSTNAMES[$node]} to ${ROLES[$node]} at IP ${IPS[$node]}..."
   talosctl apply config \
-           --file ${HOSTNAMES[@]:$node:1}.yaml \
-           --nodes ${IPS[@]:$node:1} \
+           --file ${HOSTNAMES[$node]}.yaml \
+           --nodes ${IPS[$node]} \
            --insecure
 done
 
@@ -166,22 +167,22 @@ fi
 echo "Merging Talos configs..."
 talosctl config merge ./talosconfig --nodes $(echo ${IPS[@]} | tr ' ' ',')
 # Replace 127.0.0.1 endpoint with the IP of the first node (ENDPOINT_IP is not available yet):
-yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${IPS[@]:0:1}\"]" ~/.talos/config
+yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${IPS[0]}\"]" ~/.talos/config
 yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"127.0.0.1\"]" ~/.talos/config
 
 echo "Waiting for all nodes to be up and running..."
 for node in 0 1 3; do
-  until nc -zw 3 ${IPS[@]:$node:1} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[@]:$node:1} is ready!"
+  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node]} is ready!"
 done
 
-echo "Bootstrapping Kubernetes at ${IPS[@]:0:1}..."
-talosctl bootstrap --nodes ${IPS[@]:0:1}
+echo "Bootstrapping Kubernetes at ${IPS[0]}..."
+talosctl bootstrap --nodes ${IPS[0]}
 
 echo "Creating Kubernetes config..."
 # Replace the IP of the first node with the Kubernetes endpoint:
 yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${ENDPOINT_IP}\"]" ~/.talos/config
-yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[@]:0:1}\"]" ~/.talos/config
+yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[0]}\"]" ~/.talos/config
 
 if [ -f ~/.kube/config ]; then
   echo "First, remove old Kubernetes context config for ${CLUSTERNAME}..."
@@ -189,7 +190,7 @@ if [ -f ~/.kube/config ]; then
   yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
   yq -i e "del(.contexts[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
 fi
-talosctl kubeconfig --nodes ${IPS[@]:0:1}
+talosctl kubeconfig --nodes ${IPS[0]}
 
 echo "Waiting until nodes are ready..."
 until kubectl get nodes | grep -qF "Ready"; do sleep 3; done
@@ -198,18 +199,18 @@ echo "Kubernetes nodes installed:"
 kubectl get nodes -o wide
 
 for node in 0 1 3; do
-  echo "'Upgrading' ${HOSTNAMES[@]:$node:1} with extensions from ${INSTALLER}..."
+  echo "'Upgrading' ${HOSTNAMES[$node]} with extensions from ${INSTALLER}..."
   talosctl upgrade \
            --image ${INSTALLER} \
-           --nodes ${IPS[@]:$node:1} \
+           --nodes ${IPS[$node]} \
            --timeout 3m0s \
            --force
 done
 
 echo "Waiting for all nodes to be up and running..."
 for node in 0 1 3; do
-  until nc -zw 3 ${IPS[@]:$node:1} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[@]:$node:1} is ready!"
+  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node]} is ready!"
 done
 
 # Create Tailscale configuration
@@ -224,13 +225,13 @@ EOF
 
 # Apply Tailscale configuration to each node (excluding node 3)
 for node in 0 1 3; do
-  echo "Applying Tailscale configuration to ${HOSTNAMES[@]:$node:1} at IP ${IPS[@]:$node:1}..."
-  talosctl patch mc -p @tailscale-config.yaml --nodes ${IPS[@]:$node:1}
+  echo "Applying Tailscale configuration to ${HOSTNAMES[$node]} at IP ${IPS[$node]}..."
+  talosctl patch mc -p @tailscale-config.yaml --nodes ${IPS[$node]}
 done
 
 echo "Verifying Tailscale extension is in place..."
 for node in 0 1 3; do
-  talosctl get extensionserviceconfigs --nodes ${IPS[@]:$node:1}
+  talosctl get extensionserviceconfigs --nodes ${IPS[$node]}
 done
 
 helm repo add cilium https://helm.cilium.io/
