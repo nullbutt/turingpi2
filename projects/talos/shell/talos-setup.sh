@@ -1,9 +1,9 @@
 #!/bin/zsh
 
 CLUSTERNAME=turingpi1
-IPS=( "192.168.68.53" "192.168.68.55" "192.168.68.56" )
-HOSTNAMES=( "tp-node1" "tp-node2" "tp-node4" )
-ROLES=( "controlplane" "controlplane" "controlplane" )
+IPS=("192.168.68.53" "192.168.68.55" "192.168.68.56")
+HOSTNAMES=("tp-node1" "tp-node2" "tp-node4")
+ROLES=("controlplane" "controlplane" "controlplane")
 ALLOW_SCHEDULING_ON_CONTROLPLANE=true
 ENDPOINT_IP="192.168.50.2"
 IMAGE=metal-turing_rk1-arm64_v1.7.2.raw
@@ -291,4 +291,3 @@ kubectl wait pod \
         --all
 
 echo "Cluster setup complete."
-
