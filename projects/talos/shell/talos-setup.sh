@@ -184,7 +184,7 @@ echo "Creating Kubernetes config..."
 yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${ENDPOINT_IP}\"]" ~/.talos/config
 yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[@]:0:1}\"]" ~/.talos/config
 
-if [ -f ~/.kube/config ]; then
+if [ -f ~/.kube/config]; then
   echo "First, remove old Kubernetes context config for ${CLUSTERNAME}..."
   yq -i e "del(.clusters[] | select(.name == \"${CLUSTERNAME}\"))" ~/.kube/config
   yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
@@ -291,3 +291,5 @@ kubectl wait pod \
         --all
 
 echo "Cluster setup complete."
+
+
