@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/zsh
 
 CLUSTERNAME=turingpi1
 IPS=( "192.168.68.53" "192.168.68.55" "192.168.68.56" )
@@ -36,10 +36,10 @@ if [ ! -f "$IMAGE" ]; then
 fi
 
 # Flash nodes and power on (excluding node 3 which is index 2)
-for node in 0 1 3; do
-  echo "Flashing node #$((node+1)) / ${HOSTNAMES[$node]} with $IMAGE..."
-  tpi flash -n $((node+1)) -i $IMAGE
-  tpi power on -n $((node+1))
+for node in 1 2 4; do
+  echo "Flashing node #$node / ${HOSTNAMES[$node-1]} with $IMAGE..."
+  tpi flash -n $node -i $IMAGE
+  tpi power on -n $node
 done
 
 # Create controlplane patch configuration
@@ -142,21 +142,21 @@ talosctl gen config $CLUSTERNAME https://${ENDPOINT_IP}:6443 \
          --config-patch-control-plane @${CLUSTERNAME}-controlplane-patch.yaml \
          --force
 
-for node in 0 1 3; do
-  echo "Generating config for ${ROLES[@]:$node:1} ${HOSTNAMES[@]:$node:1}..."
+for node in 1 2 4; do
+  echo "Generating config for ${ROLES[$node-1]} ${HOSTNAMES[$node-1]}..."
   talosctl machineconfig patch controlplane.yaml \
-          --patch '[{"op": "add", "path": "/machine/network/hostname", "value": "'${HOSTNAMES[@]:$node:1}'"}]' \
-          --output ${HOSTNAMES[@]:$node:1}.yaml
+          --patch '[{"op": "add", "path": "/machine/network/hostname", "value": "'${HOSTNAMES[$node-1]}'"}]' \
+          --output ${HOSTNAMES[$node-1]}.yaml
 done
 
-for node in 0 1 3; do
-  printf "Waiting for node #$((node+1)) to be ready..."
-  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[$node]} is ready!"
-  echo "Applying config ${HOSTNAMES[$node]} to ${ROLES[$node]} at IP ${IPS[$node]}..."
+for node in 1 2 4; do
+  printf "Waiting for node #$node to be ready..."
+  until nc -zw 3 ${IPS[$node-1]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node-1]} is ready!"
+  echo "Applying config ${HOSTNAMES[$node-1]} to ${ROLES[$node-1]} at IP ${IPS[$node-1]}..."
   talosctl apply config \
-           --file ${HOSTNAMES[$node]}.yaml \
-           --nodes ${IPS[$node]} \
+           --file ${HOSTNAMES[$node-1]}.yaml \
+           --nodes ${IPS[$node-1]} \
            --insecure
 done
 
@@ -171,9 +171,9 @@ yq -i e ".contexts.${CLUSTERNAME}.endpoints += [\"${IPS[0]}\"]" ~/.talos/config
 yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"127.0.0.1\"]" ~/.talos/config
 
 echo "Waiting for all nodes to be up and running..."
-for node in 0 1 3; do
-  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[$node]} is ready!"
+for node in 1 2 4; do
+  until nc -zw 3 ${IPS[$node-1]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node-1]} is ready!"
 done
 
 echo "Bootstrapping Kubernetes at ${IPS[0]}..."
@@ -198,19 +198,19 @@ until kubectl get nodes | grep -qF "Ready"; do sleep 3; done
 echo "Kubernetes nodes installed:"
 kubectl get nodes -o wide
 
-for node in 0 1 3; do
-  echo "'Upgrading' ${HOSTNAMES[$node]} with extensions from ${INSTALLER}..."
+for node in 1 2 4; do
+  echo "'Upgrading' ${HOSTNAMES[$node-1]} with extensions from ${INSTALLER}..."
   talosctl upgrade \
            --image ${INSTALLER} \
-           --nodes ${IPS[$node]} \
+           --nodes ${IPS[$node-1]} \
            --timeout 3m0s \
            --force
 done
 
 echo "Waiting for all nodes to be up and running..."
-for node in 0 1 3; do
-  until nc -zw 3 ${IPS[$node]} 50000; do sleep 3; printf '.'; done
-  echo "Node ${HOSTNAMES[$node]} is ready!"
+for node in 1 2 4; do
+  until nc -zw 3 ${IPS[$node-1]} 50000; do sleep 3; printf '.'; done
+  echo "Node ${HOSTNAMES[$node-1]} is ready!"
 done
 
 # Create Tailscale configuration
@@ -224,14 +224,14 @@ environment:
 EOF
 
 # Apply Tailscale configuration to each node (excluding node 3)
-for node in 0 1 3; do
-  echo "Applying Tailscale configuration to ${HOSTNAMES[$node]} at IP ${IPS[$node]}..."
-  talosctl patch mc -p @tailscale-config.yaml --nodes ${IPS[$node]}
+for node in 1 2 4; do
+  echo "Applying Tailscale configuration to ${HOSTNAMES[$node-1]} at IP ${IPS[$node-1]}..."
+  talosctl patch mc -p @tailscale-config.yaml --nodes ${IPS[$node-1]}
 done
 
 echo "Verifying Tailscale extension is in place..."
-for node in 0 1 3; do
-  talosctl get extensionserviceconfigs --nodes ${IPS[$node]}
+for node in 1 2 4; do
+  talosctl get extensionserviceconfigs --nodes ${IPS[$node-1]}
 done
 
 helm repo add cilium https://helm.cilium.io/
