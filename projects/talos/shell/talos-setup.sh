@@ -186,7 +186,7 @@ yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[@]:0:1}\"]" ~/.talos/con
 if [ -f ~/.kube/config ]; then
   echo "First, remove old Kubernetes context config for ${CLUSTERNAME}..."
   yq -i e "del(.clusters[] | select(.name == \"${CLUSTERNAME}\"))" ~/.kube/config
-  yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\")]" ~/.kube/config
+  yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
   yq -i e "del(.contexts[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
 fi
 talosctl kubeconfig --nodes ${IPS[@]:0:1}
