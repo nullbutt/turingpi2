@@ -144,7 +144,7 @@ talosctl gen config $CLUSTERNAME https://${ENDPOINT_IP}:6443 \
 
 for node in 0 1 3; do
   echo "Generating config for ${ROLES[@]:$node:1} ${HOSTNAMES[@]:$node:1}..."
-  talosctl machineconfig patch ${ROLES[@]:$node:1}.yaml \
+  talosctl machineconfig patch controlplane.yaml \
           --patch '[{"op": "add", "path": "/machine/network/hostname", "value": "'${HOSTNAMES[@]:$node:1}'"}]' \
           --output ${HOSTNAMES[@]:$node:1}.yaml
 done
@@ -186,7 +186,7 @@ yq -i e ".contexts.${CLUSTERNAME}.endpoints -= [\"${IPS[@]:0:1}\"]" ~/.talos/con
 if [ -f ~/.kube/config ]; then
   echo "First, remove old Kubernetes context config for ${CLUSTERNAME}..."
   yq -i e "del(.clusters[] | select(.name == \"${CLUSTERNAME}\"))" ~/.kube/config
-  yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
+  yq -i e "del(.users[] | select(.name == \"admin@${CLUSTERNAME}\")]" ~/.kube/config
   yq -i e "del(.contexts[] | select(.name == \"admin@${CLUSTERNAME}\"))" ~/.kube/config
 fi
 talosctl kubeconfig --nodes ${IPS[@]:0:1}
