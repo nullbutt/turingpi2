@@ -1,11 +1,13 @@
 #!/bin/sh
 
-# NOTE: ghcr.io/nberlee/rk3588 is added automatically to the extension list below:
 EXTENSIONS=(
+  # NOTE: ghcr.io/nberlee/rk3588 is added automatically to this extension list!
+  # Image for running WASM workloads:
+  # "ghcr.io/siderolabs/wasmedge:v0.3.0"
   # Images for Storage classes (Longhorn):
   "ghcr.io/siderolabs/iscsi-tools:v0.1.4"
-  "ghcr.io/siderolabs/util-linux-tools:2.39.3"
-  # Image for Tailscale
+  "ghcr.io/siderolabs/util-linux-tools:2.40.1"
+    # Image for Tailscale
   "ghcr.io/siderolabs/tailscale:1.62.1"
 )
 
@@ -43,10 +45,11 @@ EXTENSIONS_IMAGE=ghcr.io/$(gh api user | jq -r '.login')/installer:${TALOS_VERSI
 echo "Creating Talos image $EXTENSIONS_IMAGE with provided extensions..."
 docker run --rm -t \
        -v $PWD/_out:/out \
-       ghcr.io/nberlee/imager:v1.7.2 installer \
+       ghcr.io/nberlee/imager:${TALOS_VERSION} installer \
        --arch arm64 \
-       --board turing_rk1 \
        --platform metal \
+       --overlay-name turingrk1 \
+       --overlay-image ghcr.io/nberlee/sbc-turingrk1:${TALOS_VERSION} \
        --base-installer-image ghcr.io/nberlee/installer:${TALOS_VERSION}-rk3588 \
        --system-extension-image ghcr.io/nberlee/rk3588:${TALOS_VERSION}@$(crane digest ghcr.io/nberlee/rk3588:${TALOS_VERSION} --platform linux/arm64) \
        $(for extension in "${EXTENSIONS[@]}"; do printf " --system-extension-image $extension@$(crane digest $extension --platform linux/arm64) "; done)
